@@ -29,6 +29,7 @@ dependencies = [
     "tqdm",
     "typeguard==2.13.3",
     "zstandard",
+    "kubernetes==31.0.0",
 ]
 
 [project.optional-dependencies]

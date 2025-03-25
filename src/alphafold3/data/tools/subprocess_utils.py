@@ -12,11 +12,14 @@
 
 from collections.abc import Sequence
 import os
+import random
 import subprocess
 import time
 from typing import Any
 
 from absl import logging
+
+from .k8s_utils import KubernetesExecutor
 
 
 def create_query_fasta_file(sequence: str, path: str, linewidth: int = 80):
@@ -34,6 +37,35 @@ def check_binary_exists(path: str, name: str) -> None:
   """Checks if a binary exists on the given path and raises otherwise."""
   if not os.path.exists(path):
     raise RuntimeError(f'{name} binary not found at {path}')
+  
+
+def run_in_k8s(cmd: Sequence[str], cmd_name: str) -> None:
+  executor = KubernetesExecutor()
+  
+  namespace = os.environ.get('K8S_NAMESPACE', '')
+  image = os.environ.get('K8S_IMAGE', '')
+  job_name = os.environ.get('K8S_JOB_NAME', '')
+  pvc_mounts = executor.parse_pvc_mounts(os.environ.get('K8S_PVC_MOUNTS', ''))
+
+  salt = '{:08x}'.format(random.getrandbits(32))
+
+  logging.info('Launching subprocess "%s"', ' '.join(cmd))
+  start_time = time.time()
+  job = executor.create_job(
+    name=f"{job_name}-cpu-{cmd_name.lower()}-{salt}",
+    namespace=namespace,
+    labels={"job": job_name},
+    image=image,
+    command=[cmd[0]],
+    args=cmd[1:],
+    pvc_mounts=pvc_mounts,
+    cpu=('4', '8'),
+    memory=('2Gi', '4Gi'))
+  executor.wait_for_job_to_finish(job) 
+  executor.delete_job(job)
+  end_time = time.time()
+
+  logging.info('Finished %s in %.3f seconds', cmd_name, end_time - start_time)
 
 
 def run(
@@ -64,6 +96,9 @@ def run(
   Raises:
     RuntimeError: if the process completes with a non-zero return code.
   """
+  
+  if os.getenv('RUN_K8S_JOBS', '0') == '1':
+    return run_in_k8s(cmd, cmd_name, **run_kwargs)
 
   logging.info('Launching subprocess "%s"', ' '.join(cmd))
 
