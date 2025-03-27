@@ -52,12 +52,12 @@ def run_in_k8s(cmd: Sequence[str], cmd_name: str) -> None:
   logging.info('Launching subprocess "%s"', ' '.join(cmd))
   start_time = time.time()
   job = executor.create_job(
-    name=f"{job_name}-cpu-{cmd_name.lower()}-{salt}",
+    name=f"{job_name}-cpu-{cmd_name.lower().split(' ')[0]}-{salt}",
     namespace=namespace,
     labels={"job": job_name},
     image=image,
     command=[cmd[0]],
-    args=cmd[1:],
+    args=list(cmd[1:]),
     pvc_mounts=pvc_mounts,
     cpu=('4', '8'),
     memory=('2Gi', '4Gi'))
@@ -76,7 +76,7 @@ def run(
     log_stdout: bool = False,
     max_out_streams_len: int | None = 500_000,
     **run_kwargs,
-) -> subprocess.CompletedProcess[Any]:
+) -> subprocess.CompletedProcess[Any] | None:
   """Launches a subprocess, times it, and checks for errors.
 
   Args:
@@ -98,7 +98,8 @@ def run(
   """
   
   if os.getenv('RUN_K8S_JOBS', '0') == '1':
-    return run_in_k8s(cmd, cmd_name, **run_kwargs)
+    run_in_k8s(cmd, cmd_name, **run_kwargs)
+    return None
 
   logging.info('Launching subprocess "%s"', ' '.join(cmd))
 

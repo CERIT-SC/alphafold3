@@ -42,13 +42,13 @@ def main():
   json_path = get_arg_value(cpu_args, "--json_path")
 
   if input_dir is not None:
-    fold_inputs = folding_input.load_fold_inputs_from_dir(
+    fold_inputs = list(folding_input.load_fold_inputs_from_dir(
         pathlib.Path(input_dir)
-    )
+    ))
   elif json_path is not None:
-    fold_inputs = folding_input.load_fold_inputs_from_path(
+    fold_inputs = list(folding_input.load_fold_inputs_from_path(
         pathlib.Path(json_path)
-    )
+    ))
   else:
     raise AssertionError(
         'Exactly one of --json_path or --input_dir must be specified.'

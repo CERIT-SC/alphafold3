@@ -105,13 +105,13 @@ class KubernetesExecutor:
       image: str, 
       command: list[str],
       args: list[str], 
-      pvc_mounts: dict[str, str],
-      service_account: str = None,
-      env: list[str, str] = None,
+      pvc_mounts: list[dict[str, str]],
+      service_account: str | None = None,
+      env: list[dict[str, str]] | None = None,
       gpu: bool = False,
       gpu_mem: str = "40000",
-      cpu: tuple[str, str] = None,
-      memory: tuple[str, str] = None
+      cpu: tuple[str, str] | None = None,
+      memory: tuple[str, str] | None = None
     ) -> tuple[str, str]:
     cpu = cpu or ("8", "16")
     memory = memory or ("32Gi", "64Gi") 
@@ -148,7 +148,7 @@ class KubernetesExecutor:
       kubernetes.client.V1VolumeMount(name="dshm", mount_path="/dev/shm")
     )
 
-    env = list(map(lambda e: kubernetes.client.V1EnvVar(name=e["name"], value=e["value"]), env or []))
+    parsed_env = list(map(lambda e: kubernetes.client.V1EnvVar(name=e["name"], value=e["value"]), env or []))
 
 
     job = kubernetes.client.V1Job(
@@ -169,7 +169,7 @@ class KubernetesExecutor:
                 image_pull_policy="Always",
                 command=command,
                 args=args,
-                env=env,
+                env=parsed_env,
                 resources=kubernetes.client.V1ResourceRequirements(
                   requests={"cpu": cpu[0], "memory": memory[0]},
                   limits={"cpu": cpu[1], "memory": memory[1]},
