@@ -21,7 +21,7 @@ class KubernetesExecutor:
       try:
         current_job = self.api.read_namespaced_job(job_id, namespace)
       except kubernetes.client.rest.ApiException as e:
-        if e.status == 404:
+        if e.status == 404 or e.status == 500:
           time.sleep(6)
           retry_counter += 1
           if retry_counter > 10:
@@ -39,7 +39,15 @@ class KubernetesExecutor:
         break
 
       if current_job.status.failed is not None:
+        # Check if OOMKilled
+        pod = self.get_job_pod(job)
+        if pod is not None:
+          for container in pod.status.container_statuses:
+            if container.state.terminated.reason == "OOMKilled":
+              raise RuntimeError(f"Job {job_id} OOMKilled")
+        
         raise RuntimeError(f"Job {job_id} failed")
+        
 
       time.sleep(5)
 

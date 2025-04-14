@@ -59,8 +59,8 @@ def run_in_k8s(cmd: Sequence[str], cmd_name: str) -> None:
     command=[cmd[0]],
     args=list(cmd[1:]),
     pvc_mounts=pvc_mounts,
-    cpu=('4', '8'),
-    memory=('2Gi', '4Gi'))
+    cpu=('8', '16'),
+    memory=('16Gi', '64Gi'))
   executor.wait_for_job_to_finish(job) 
   executor.delete_job(job)
   end_time = time.time()
