@@ -40,6 +40,8 @@ def main():
   cpu_args = sys.argv[1:]
   input_dir = get_arg_value(cpu_args, "--input_dir")
   json_path = get_arg_value(cpu_args, "--json_path")
+  metrics_output = get_arg_value(cpu_args, "--metrics_output")
+  cpu_args = remove_args(cpu_args, ["--metrics_output"])
 
   if input_dir is not None:
     fold_inputs = list(folding_input.load_fold_inputs_from_dir(
@@ -69,7 +71,7 @@ def main():
     image=os.environ.get('K8S_IMAGE', ''),
     command=['python'],
     args= ["run_alphafold.py"] + cpu_args + ["--norun_inference"],
-    env=get_env_vars(["RUN_K8S_JOBS", "K8S_JOB_NAME", "K8S_NAMESPACE", "K8S_SERVICE_ACCOUNT", "K8S_IMAGE", "K8S_PVC_MOUNTS"]),
+    env=get_env_vars(["RUN_K8S_JOBS", "K8S_JOB_NAME", "K8S_NAMESPACE", "K8S_SERVICE_ACCOUNT", "K8S_IMAGE", "K8S_PVC_MOUNTS"]) + [{"name": "K8S_METRICS_OUTPUT", "value": metrics_output}],
     pvc_mounts=executor.parse_pvc_mounts(os.environ.get('K8S_PVC_MOUNTS', '')),
     cpu=('2', '4'),
     memory=('2Gi', '4Gi'),

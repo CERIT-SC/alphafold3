@@ -40,8 +40,9 @@ def check_binary_exists(path: str, name: str) -> None:
   
 
 def run_in_k8s(cmd: Sequence[str], cmd_name: str) -> None:
-  executor = KubernetesExecutor()
-  
+  metrics_output = os.environ.get('K8S_METRICS_OUTPUT', '')
+  executor = KubernetesExecutor(metrics_output=metrics_output)
+
   namespace = os.environ.get('K8S_NAMESPACE', '')
   image = os.environ.get('K8S_IMAGE', '')
   job_name = os.environ.get('K8S_JOB_NAME', '')
@@ -61,7 +62,7 @@ def run_in_k8s(cmd: Sequence[str], cmd_name: str) -> None:
     pvc_mounts=pvc_mounts,
     cpu=('8', '16'),
     memory=('16Gi', '64Gi'))
-  executor.wait_for_job_to_finish(job) 
+  executor.wait_for_job_to_finish(job, print_metrics=True) 
   executor.delete_job(job)
   end_time = time.time()
 

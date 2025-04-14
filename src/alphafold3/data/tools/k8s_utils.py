@@ -1,21 +1,26 @@
-import os
-import hashlib
+import datetime
+from threading import Lock
 import time
 import kubernetes
 import kubernetes.config
 import kubernetes.client
+import kubernetes.utils.quantity
 
 class KubernetesExecutor:
-  def __init__(self):
+  def __init__(self, metrics_output: str = ""):
     kubernetes.config.load_incluster_config()
     self.api = kubernetes.client.BatchV1Api()
     self.kubeapi = kubernetes.client.CoreV1Api()
+    self.custom_api = kubernetes.client.CustomObjectsApi()
+    self.metrics_output = metrics_output
+    self.metrics_output_lock = Lock()
 
-  def wait_for_job_to_finish(self, job: tuple[str, str], print_logs: bool = False) -> None:
+  def wait_for_job_to_finish(self, job: tuple[str, str], print_logs: bool = False, print_metrics: bool = False) -> None:
     job_id, namespace = job
     printed_log = ""
 
     retry_counter = 0
+    metrics_mod_counter = 0
 
     while True:
       try:
@@ -32,15 +37,27 @@ class KubernetesExecutor:
           raise e
 
       retry_counter = 0
+      pod = self.get_job_pod(job)
+
       if print_logs:
         printed_log = self._print_new_logs(job, printed_log)
+
+      # Print metrics every 30 seconds
+      if print_metrics and self.metrics_output and metrics_mod_counter % 6 == 0:
+        if pod is not None:
+          cpu_usage, memory_usage = self._get_pod_metrics(pod)
+          if cpu_usage and memory_usage:
+            with self.metrics_output_lock:
+              with open(self.metrics_output, "a") as f:
+                f.write(f"{datetime.datetime.now()} {job_id} {cpu_usage} {memory_usage} \n")
+
+        metrics_mod_counter = 0
 
       if current_job.status.succeeded is not None:
         break
 
       if current_job.status.failed is not None:
         # Check if OOMKilled
-        pod = self.get_job_pod(job)
         if pod is not None:
           for container in pod.status.container_statuses:
             if container.state.terminated.reason == "OOMKilled":
@@ -48,7 +65,7 @@ class KubernetesExecutor:
         
         raise RuntimeError(f"Job {job_id} failed")
         
-
+      metrics_mod_counter += 1
       time.sleep(5)
 
   def _print_new_logs(self, job: tuple[str, str], printed_log: str) -> str:
@@ -63,6 +80,28 @@ class KubernetesExecutor:
       printed_log += new_log
 
     return printed_log
+  
+  def _get_pod_metrics(self, pod):
+    try:
+      api_response = self.custom_api.get_namespaced_custom_object(
+        group="metrics.k8s.io",
+        version="v1beta1",
+        namespace=pod.metadata.namespace,
+        plural="pods",
+        name=pod.metadata.name
+      )
+    except kubernetes.client.rest.ApiException as e:
+      if e.status != 404:
+        print(e)
+      return None, None
+
+    cpu_usage = api_response["containers"][0]["usage"]["cpu"]
+    memory_usage = api_response["containers"][0]["usage"]["memory"]
+
+    parsed_cpu_usage = kubernetes.utils.quantity.parse_quantity(cpu_usage)
+    parsed_memory_usage = kubernetes.utils.quantity.parse_quantity(memory_usage)
+
+    return (parsed_cpu_usage, parsed_memory_usage)
   
   def delete_job(self, job: tuple[str, str]):
     job_id, namespace = job
