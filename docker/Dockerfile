@@ -18,12 +18,18 @@ FROM nvidia/cuda:12.6.0-base-ubuntu22.04
 # zlib is a required dependency of AlphaFold 3.
 RUN apt update --quiet \
     && apt install --yes --quiet software-properties-common \
-    && apt install --yes --quiet git wget gcc g++ make zlib1g-dev zstd
+    && apt install --yes --quiet git wget gcc g++ make zlib1g-dev zstd zip ssmtp && apt-get clean
+
+RUN sed 's/mailhub.*/mailhub=relay.muni.cz/' -i /etc/ssmtp/ssmtp.conf
+RUN sed 's/reqriteDomain.*/rewriteDomain=cerit-sc.cz/' -i /etc/ssmtp/ssmtp.conf
+RUN sed 's/FromLineOv.*/FromLineOverride=yes/' -i /etc/ssmtp/ssmtp.conf
+RUN echo "FromLineOverride=yes" >> /etc/ssmtp/ssmtp.conf
+RUN chmod 755 /etc/ssmtp && chmod 644 /etc/ssmtp/ssmtp.conf
 
 # Get apt repository of specific Python versions. Then install Python. Tell APT
 # this isn't an interactive TTY to avoid timezone prompt when installing.
 RUN add-apt-repository ppa:deadsnakes/ppa \
-    && DEBIAN_FRONTEND=noninteractive apt install --yes --quiet python3.11 python3-pip python3.11-venv python3.11-dev
+    && DEBIAN_FRONTEND=noninteractive apt install --yes --quiet python3.11 python3-pip python3.11-venv python3.11-dev && apt-get clean
 RUN python3.11 -m venv /alphafold3_venv
 ENV PATH="/hmmer/bin:/alphafold3_venv/bin:$PATH"
 # Update pip to the latest version. Not necessary in Docker, but good to do when
@@ -43,16 +49,22 @@ RUN mkdir /hmmer_build /hmmer ; \
     (cd /hmmer_build/hmmer-3.4/easel && make install) ; \
     rm -R /hmmer_build
 
+WORKDIR /app/alphafold
+# Install the Python dependencies AlphaFold 3 needs.
+COPY ./dev-requirements.txt dev-requirements.txt
+RUN pip3 install -r dev-requirements.txt
+
 # Copy the AlphaFold 3 source code from the local machine to the container and
 # set the working directory to there.
 COPY . /app/alphafold
-WORKDIR /app/alphafold
 
-# Install the Python dependencies AlphaFold 3 needs.
-RUN pip3 install -r dev-requirements.txt
+
 RUN pip3 install --no-deps .
 # Build chemical components database (this binary was installed by pip).
 RUN build_data
+
+RUN useradd --uid 1000 -s /bin/bash user 
+ENV HOME /tmp
 
 # To work around a known XLA issue causing the compilation time to greatly
 # increase, the following environment variable setting XLA flags must be enabled
