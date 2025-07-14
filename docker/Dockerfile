@@ -58,6 +58,8 @@ RUN pip3 install -r dev-requirements.txt
 # set the working directory to there.
 COPY . /app/alphafold
 
+RUN pip3 install -r af3_mmseqs_scripts/requirements.txt
+
 
 RUN pip3 install --no-deps .
 # Build chemical components database (this binary was installed by pip).
