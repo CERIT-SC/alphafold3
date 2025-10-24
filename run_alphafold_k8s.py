@@ -58,11 +58,11 @@ def main():
   
   # Assuming only one input/output directory
   cpu_output = fold_inputs[0].sanitised_name()
-  print(f"Processing fold input {fold_inputs[0].name}")
+  print(f"Processing fold input {fold_inputs[0].name}", flush=True)
 
   executor = KubernetesExecutor()
 
-  print("Starting CPU job")
+  print("Starting CPU job", flush=True)
   cpu_job = executor.create_job(
     name=f'{job_name}-cpu',
     labels={"job": job_name},
@@ -85,14 +85,14 @@ def main():
   finally:
     executor.delete_job(cpu_job)
 
-  print("CPU job finished") 
+  print("CPU job finished", flush=True) 
 
   # Update the args so the GPU job starts from the CPU job output
   output_root_dir = get_arg_value(cpu_args, "--output_dir")
   gpu_args = remove_args(cpu_args, ["--json_path", "--input_dir"])
   gpu_args.append(f"--json_path={os.path.join(output_root_dir, cpu_output, cpu_output)}_data.json")
   
-  print("Starting GPU job")
+  print("Starting GPU job", flush=True)
   gpu_job = executor.create_job(
     name=f'{job_name}-gpu',
     labels={"job": job_name},
@@ -115,7 +115,8 @@ def main():
   finally:
     executor.delete_job(gpu_job)
 
-  print("GPU job finished")
+  print("GPU job finished", flush=True)
+  print("Computation DONE!", flush=True)
 
   
 if __name__ == '__main__':

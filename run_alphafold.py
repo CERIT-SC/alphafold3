@@ -821,7 +821,7 @@ def main(_):
     )
     num_fold_inputs += 1
 
-  print(f'Done running {num_fold_inputs} fold jobs.')
+  #print(f'Done running {num_fold_inputs} fold jobs.')
 
 
 if __name__ == '__main__':
