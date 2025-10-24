@@ -93,6 +93,7 @@ def main():
   gpu_args.append(f"--json_path={os.path.join(output_root_dir, cpu_output, cpu_output)}_data.json")
   
   print("Starting GPU job", flush=True)
+  print("Waiting for resources...", flush=True)
   gpu_job = executor.create_job(
     name=f'{job_name}-gpu',
     labels={"job": job_name},
