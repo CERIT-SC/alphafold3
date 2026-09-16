@@ -74,19 +74,10 @@ RUN (cd /hmmer_build/hmmer-3.4 && ./configure --prefix /hmmer) && \
     rm -R /hmmer_build
 
 WORKDIR /app/alphafold
-# Install the Python dependencies AlphaFold 3 needs.
-COPY ./dev-requirements.txt dev-requirements.txt
-RUN pip3 install -r dev-requirements.txt
 
 # Copy the AlphaFold 3 source code from the local machine to the container and
 # set the working directory to there.
 COPY . /app/alphafold
-
-
-RUN pip3 install -r af3_mmseqs_scripts/requirements.txt
-
-
-RUN pip3 install --no-deps .
 
 # Install the exact dependency tree using uv and cache the build artifacts.
 # --frozen: do not update the lockfile during build.
@@ -102,7 +93,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN uv run build_data
 
 
-RUN useradd --uid 1000 -s /bin/bash user 
+# Ubuntu 24.04 ships a default `ubuntu` account already holding UID 1000, so it
+# has to go before `user` can claim that UID.
+RUN userdel --remove ubuntu 2>/dev/null; \
+    useradd --uid 1000 -s /bin/bash user
 ENV HOME=/tmp
 
 # To work around a known XLA issue causing the compilation time to greatly

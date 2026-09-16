@@ -16,6 +16,8 @@ readme = "README.md"
 license = {file = "LICENSE"}
 dependencies = [
     "absl-py>=2.3.1",
+    "biopython==1.84",
+    "colorama==0.4.6",
     "dm-haiku==0.0.17",
     "etils[epath]",
     "jax==0.10.2",
