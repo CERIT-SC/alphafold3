@@ -73,7 +73,7 @@ def main():
     args= ["run_alphafold.py"] + cpu_args + ["--norun_inference"],
     env=get_env_vars(["RUN_K8S_JOBS", "K8S_JOB_NAME", "K8S_NAMESPACE", "K8S_SERVICE_ACCOUNT", "K8S_IMAGE", "K8S_PVC_MOUNTS"]) + [{"name": "K8S_METRICS_OUTPUT", "value": metrics_output}],
     pvc_mounts=executor.parse_pvc_mounts(os.environ.get('K8S_PVC_MOUNTS', '')),
-    cpu=('2', '4'),
+    cpu=('50m', '4'),
     memory=('2Gi', '4Gi'),
     gpu=False
   )
