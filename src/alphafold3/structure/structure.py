@@ -1,7 +1,16 @@
 # Copyright 2024 DeepMind Technologies Limited
 #
-# AlphaFold 3 source code is licensed under CC BY-NC-SA 4.0. To view a copy of
-# this license, visit https://creativecommons.org/licenses/by-nc-sa/4.0/
+# AlphaFold 3 source code is licensed under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with the
+# License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # To request access to the AlphaFold 3 model parameters, follow the process set
 # out at https://github.com/google-deepmind/alphafold3. You may only use these
@@ -50,6 +59,7 @@ class _UnsetSentinel(enum.Enum):
   UNSET = object()
 
 
+_UnsetType = Literal[_UnsetSentinel.UNSET]
 _UNSET = _UnsetSentinel.UNSET
 
 
@@ -275,12 +285,30 @@ class StructureTables:
   bonds: structure_tables.Bonds
 
 
+@dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
+class ResArrays:
+  """Atom-level data arrays with a residue dimension.
+
+  Attributes:
+    atom_positions: float32 of shape [num_res, num_atom_type, 3] coordinates.
+    atom_mask: float32 of shape [num_res, num_atom_type] indicating if an atom
+      is present.
+    atom_b_factor: float32 of shape [num_res, num_atom_type] b_factors.
+    atom_occupancy: float32 of shape [num_res, num_atom_type] occupancies.
+  """
+
+  atom_positions: np.ndarray
+  atom_mask: np.ndarray
+  atom_b_factor: np.ndarray
+  atom_occupancy: np.ndarray
+
+
 class Structure(table.Database):
   """Structure class for representing and processing molecular structures."""
 
-  tables: ClassVar[Collection[str]] = TABLE_FIELDS
+  tables: ClassVar[Collection[str]] = TABLE_FIELDS  # pyrefly: ignore[bad-override]
 
-  foreign_keys: ClassVar[Mapping[str, Collection[tuple[str, str]]]] = {
+  foreign_keys: ClassVar[Mapping[str, Collection[tuple[str, str]]]] = {  # pyrefly: ignore[bad-override]
       'residues': (('chain_key', 'chains'),),
       'atoms': (('chain_key', 'chains'), ('res_key', 'residues')),
       'bonds': (('from_atom_key', 'atoms'), ('dest_atom_key', 'atoms')),
@@ -308,7 +336,7 @@ class Structure(table.Database):
     # b/345221494 Rename this variable when structure_v1 compatibility code
     # is removed.
     self._VERSION = '2.0.0'  # pylint: disable=invalid-name
-    self._name = name
+    self._name = name or 'unset'
     self._release_date = release_date
     self._resolution = resolution
     self._structure_method = structure_method
@@ -775,7 +803,7 @@ class Structure(table.Database):
       yield row | current_chain
 
   def _iter_atom_ranges(
-      self, boundaries: Sequence[int]
+      self, boundaries: Sequence[int] | np.ndarray
   ) -> Iterator[tuple[int, int]]:
     """Iterator for (start, end) pairs from an array of start indices."""
     yield from itertools.pairwise(boundaries)
@@ -785,7 +813,7 @@ class Structure(table.Database):
 
   def _iter_residue_ranges(
       self,
-      boundaries: Sequence[int],
+      boundaries: Sequence[int] | np.ndarray,
       *,
       count_unresolved: bool,
   ) -> Iterator[tuple[int, int]]:
@@ -1072,7 +1100,7 @@ class Structure(table.Database):
     }
     res_indices = [
         residue_index
-        for res_id in _iter_residues(other)
+        for res_id in _iter_residues(other)  # pyrefly: ignore[bad-argument-type]
         if (residue_index := residue_index_map.get(res_id)) is not None
     ]
 
@@ -1110,23 +1138,23 @@ class Structure(table.Database):
         bonds=updated_tables.bonds,
     )
 
-  def copy_and_update(
+  def copy_and_update(  # pyrefly: ignore[bad-override]
       self,
       *,
-      name: str | Literal[_UNSET] = _UNSET,
-      release_date: datetime.date | None | Literal[_UNSET] = _UNSET,
-      resolution: float | None | Literal[_UNSET] = _UNSET,
-      structure_method: str | None | Literal[_UNSET] = _UNSET,
+      name: str | _UnsetType = _UNSET,
+      release_date: datetime.date | None | _UnsetType = _UNSET,
+      resolution: float | None | _UnsetType = _UNSET,
+      structure_method: str | None | _UnsetType = _UNSET,
       bioassembly_data: (
-          bioassemblies.BioassemblyData | None | Literal[_UNSET]
+          bioassemblies.BioassemblyData | None | _UnsetType
       ) = _UNSET,
       chemical_components_data: (
-          struc_chem_comps.ChemicalComponentsData | None | Literal[_UNSET]
+          struc_chem_comps.ChemicalComponentsData | None | _UnsetType
       ) = _UNSET,
-      chains: structure_tables.Chains | None | Literal[_UNSET] = _UNSET,
-      residues: structure_tables.Residues | None | Literal[_UNSET] = _UNSET,
-      atoms: structure_tables.Atoms | None | Literal[_UNSET] = _UNSET,
-      bonds: structure_tables.Bonds | None | Literal[_UNSET] = _UNSET,
+      chains: structure_tables.Chains | None | _UnsetType = _UNSET,
+      residues: structure_tables.Residues | None | _UnsetType = _UNSET,
+      atoms: structure_tables.Atoms | None | _UnsetType = _UNSET,
+      bonds: structure_tables.Bonds | None | _UnsetType = _UNSET,
       skip_validation: bool = False,
   ) -> Self:
     """Performs a shallow copy but with specified fields updated."""
@@ -1158,7 +1186,7 @@ class Structure(table.Database):
     def select(field, default):
       return field if field != _UNSET else default
 
-    return Structure(
+    return Structure(  # pyrefly: ignore[bad-return]
         name=select(name, self.name),
         release_date=select(release_date, self.release_date),
         resolution=select(resolution, self.resolution),
@@ -1224,7 +1252,7 @@ class Structure(table.Database):
     else:
       constructor_kwargs = {field: self[field] for field in _UPDATEABLE_FIELDS}
       constructor_kwargs.update(changes)
-    return Structure(skip_validation=skip_validation, **constructor_kwargs)
+    return Structure(skip_validation=skip_validation, **constructor_kwargs)  # pyrefly: ignore[bad-return]
 
   def copy_and_update_coords(self, coords: np.ndarray) -> Self:
     """Performs a shallow copy but with coordinates updated."""
@@ -1304,15 +1332,15 @@ class Structure(table.Database):
   def copy_and_update_globals(
       self,
       *,
-      name: str | Literal[_UNSET] = _UNSET,
-      release_date: datetime.date | Literal[_UNSET] | None = _UNSET,
-      resolution: float | Literal[_UNSET] | None = _UNSET,
-      structure_method: str | Literal[_UNSET] | None = _UNSET,
+      name: str | _UnsetType = _UNSET,
+      release_date: datetime.date | _UnsetType | None = _UNSET,
+      resolution: float | _UnsetType | None = _UNSET,
+      structure_method: str | _UnsetType | None = _UNSET,
       bioassembly_data: (
-          bioassemblies.BioassemblyData | Literal[_UNSET] | None
+          bioassemblies.BioassemblyData | _UnsetType | None
       ) = _UNSET,
       chemical_components_data: (
-          struc_chem_comps.ChemicalComponentsData | Literal[_UNSET] | None
+          struc_chem_comps.ChemicalComponentsData | _UnsetType | None
       ) = _UNSET,
   ) -> Self:
     """Returns a shallow copy with the global columns updated."""
@@ -1327,7 +1355,7 @@ class Structure(table.Database):
     bioassembly_data = select(bioassembly_data, self.bioassembly_data)
     chem_data = select(chemical_components_data, self.chemical_components_data)
 
-    return Structure(
+    return Structure(  # pyrefly: ignore[bad-return]
         name=name,
         release_date=release_date,
         resolution=resolution,
@@ -1534,10 +1562,10 @@ class Structure(table.Database):
     # Get boolean masks for each table. These are None if none of the filter
     # parameters affect the table in question.
     chain_mask = self._chains.make_filter_mask(
-        **chain_predicates, apply_per_element=apply_per_element
+        **chain_predicates, apply_per_element=apply_per_element  # pyrefly: ignore[bad-argument-type]
     )
     res_mask = self._residues.make_filter_mask(
-        **res_predicates, apply_per_element=apply_per_element
+        **res_predicates, apply_per_element=apply_per_element  # pyrefly: ignore[bad-argument-type]
     )
     atom_mask = self._atoms.make_filter_mask(
         mask, **atom_predicates, apply_per_element=apply_per_element
@@ -1579,8 +1607,8 @@ class Structure(table.Database):
         )
         filtered_chains = self._chains[nonempty_chain_mask]
         updated_tables = self._cascade_delete(
-            chains=filtered_chains,
-            residues=filtered_residues,
+            chains=filtered_chains,  # pyrefly: ignore[bad-argument-type]
+            residues=filtered_residues,  # pyrefly: ignore[bad-argument-type]
             atoms=filtered_atoms,
         )
       case CascadeDelete.CHAINS:
@@ -2284,7 +2312,7 @@ class Structure(table.Database):
           'Coordinate field tensor must have 2 dimensions: '
           f'(num_states, num_atoms), got {self._atoms.ndim}.'
       )
-    return concat(self.unstack(axis=0))
+    return concat(self.unstack(axis=0))  # pyrefly: ignore[bad-return]
 
   def merge_chains(
       self,
@@ -2438,8 +2466,8 @@ class Structure(table.Database):
       *,
       include_missing_residues: bool,
       atom_order: Mapping[str, int] = atom_types.ATOM37_ORDER,
-  ) -> tuple[np.ndarray, np.ndarray]:
-    """Returns an atom position and atom mask array with a num_res dimension.
+  ) -> ResArrays:
+    """Returns atom-level information in arrays containing a num_res dimension.
 
     NB: All residues in the structure will appear in the residue dimension but
     atoms will only have a True (1.0) mask value if the residue + atom
@@ -2455,15 +2483,14 @@ class Structure(table.Database):
         choose atom_types.ATOM29_ORDER for nucleics.
 
     Returns:
-      A pair of arrays:
-        * atom_positions: [num_res, atom_type_num, 3] float32 array of coords.
-        * atom_mask: [num_res, atom_type_num] float32 atom mask denoting
-          which atoms are present in this Structure.
+      A ResArrays object.
     """
     num_res = self.num_residues(count_unresolved=include_missing_residues)
     atom_type_num = len(atom_order)
     atom_positions = np.zeros((num_res, atom_type_num, 3), dtype=np.float32)
     atom_mask = np.zeros((num_res, atom_type_num), dtype=np.float32)
+    atom_b_factor = np.zeros((num_res, atom_type_num), dtype=np.float32)
+    atom_occupancy = np.zeros((num_res, atom_type_num), dtype=np.float32)
 
     all_residues = None if not include_missing_residues else self.all_residues
     for i, atom in enumerate_residues(self.iter_atoms(), all_residues):
@@ -2473,8 +2500,15 @@ class Structure(table.Database):
         atom_positions[i, atom_idx, 1] = atom['atom_y']
         atom_positions[i, atom_idx, 2] = atom['atom_z']
         atom_mask[i, atom_idx] = 1.0
+        atom_b_factor[i, atom_idx] = atom['atom_b_factor']
+        atom_occupancy[i, atom_idx] = atom['atom_occupancy']
 
-    return atom_positions, atom_mask
+    return ResArrays(
+        atom_positions=atom_positions,
+        atom_mask=atom_mask,
+        atom_b_factor=atom_b_factor,
+        atom_occupancy=atom_occupancy,
+    )
 
   def to_res_atom_lists(
       self, *, include_missing_residues: bool
@@ -2576,7 +2610,7 @@ class Structure(table.Database):
       ValueError: If any two previously distinct polymer chains do not have
         unique names anymore after the rename.
     """
-    mapped_chains = self._chains.copy_and_remap(auth_asym_id=new_id_by_old_id)
+    mapped_chains = self._chains.copy_and_remap(auth_asym_id=new_id_by_old_id)  # pyrefly: ignore[bad-argument-type]
     mapped_polymer_ids = mapped_chains.filter(
         type=mmcif_names.POLYMER_CHAIN_TYPES
     ).auth_asym_id
@@ -2670,7 +2704,7 @@ class Structure(table.Database):
       for res_name in res_name_map:
         if res_name not in res_name_set:
           raise ValueError(f'"{res_name}" not found in this structure.')
-    new_residues = self._residues.copy_and_remap(name=res_name_map)
+    new_residues = self._residues.copy_and_remap(name=res_name_map)  # pyrefly: ignore[bad-argument-type]
 
     if self._chemical_components_data is not None:
       chem_comp = {
@@ -2814,7 +2848,7 @@ class Structure(table.Database):
         transform.apply_to_coords(base_struc.coords)
     )
     transformed_chains = base_struc.chains_table.copy_and_remap(
-        id=transform.chain_id_rename_map
+        id=transform.chain_id_rename_map  # pyrefly: ignore[bad-argument-type]
     )
     # Set the transformed author chain ID to match the label chain ID.
     transformed_chains = transformed_chains.copy_and_update(
@@ -2865,11 +2899,15 @@ class Structure(table.Database):
 
     # We don't need to assign unique chain IDs because the bioassembly
     # transform takes care of remapping chain IDs to be unique.
-    concatenated = concat(transformed_strucs, assign_unique_chain_ids=False)
+    concatenated = concat(
+        transformed_strucs,
+        assign_unique_chain_ids=False,
+        assign_unique_entity_ids=False,
+    )
 
     # Copy over all scalar fields (e.g. name, release date, etc.) other than
     # bioassembly_data because it relates only to the pre-transformed structure.
-    return concatenated.copy_and_update_globals(
+    return concatenated.copy_and_update_globals(  # pyrefly: ignore[bad-return]
         name=self.name,
         release_date=self.release_date,
         resolution=self.resolution,
@@ -2884,7 +2922,7 @@ class Structure(table.Database):
     raw_mmcif['_entry.id'] = [self._name]
 
     if self._release_date is not None:
-      date = [datetime.datetime.strftime(self._release_date, '%Y-%m-%d')]
+      date = [datetime.datetime.strftime(self._release_date, '%Y-%m-%d')]  # pyrefly: ignore[bad-argument-type]
       raw_mmcif['_pdbx_audit_revision_history.revision_date'] = date
       raw_mmcif['_pdbx_database_status.recvd_initial_deposition_date'] = date
 
@@ -2896,11 +2934,11 @@ class Structure(table.Database):
         raw_mmcif['_exptl.method'].append(method)
 
     if self._bioassembly_data is not None:
-      raw_mmcif.update(self._bioassembly_data.to_mmcif_dict())
+      raw_mmcif.update(self._bioassembly_data.to_mmcif_dict())  # pyrefly: ignore[no-matching-overload]
 
     # Populate chemical components data for all residues of this Structure.
     if self._chemical_components_data:
-      raw_mmcif.update(self._chemical_components_data.to_mmcif_dict())
+      raw_mmcif.update(self._chemical_components_data.to_mmcif_dict())  # pyrefly: ignore[no-matching-overload]
 
     # Add _software table to store version number used to generate mmCIF.
     # Only required data items are used (+ _software.version).
@@ -3070,6 +3108,7 @@ def concat(
     *,
     name: str | None = None,
     assign_unique_chain_ids: bool = True,
+    assign_unique_entity_ids: bool = True,
 ) -> Structure:
   """Concatenates structures along the atom dimension.
 
@@ -3104,11 +3143,16 @@ def concat(
       structures then they should all have the same number of models).
     name: Optional name to give to the concatenated structure. If None, the name
       will be concatenation of names of all concatenated structures.
-    assign_unique_chain_ids: Whether this function will first assign new unique
+    assign_unique_chain_ids: If True, this function first assigns new unique
       chain IDs, entity IDs and author chain IDs to every chain in `strucs`. If
-      `False` then users must ensure chain IDs are already unique, otherwise an
+      False, you must ensure chain IDs are already unique, otherwise an
       exception is raised. See `_assign_unique_chain_ids` for more information
       on how this is performed.
+    assign_unique_entity_ids: If True, this function first assigns new unique
+      entity IDs to every chain in `strucs`. If False, you must ensure entity
+      IDs are already set in a way so that same entity ID implies for two chains
+      in `strucs` that they have the same residues. This option applies only if
+      `assign_unique_chain_ids == False`, otherwise it must be set to True.
 
   Returns:
     A new concatenated `Structure` with all of the chains in `strucs` combined
@@ -3122,6 +3166,13 @@ def concat(
   """
   if not strucs:
     raise ValueError('Need at least one Structure to concatenate.')
+
+  if assign_unique_chain_ids and not assign_unique_entity_ids:
+    raise ValueError(
+        'If assign_unique_chain_ids is True, assign_unique_entity_ids must be '
+        'True as well.'
+    )
+
   if assign_unique_chain_ids:
     strucs = _assign_unique_chain_ids(strucs)
 
@@ -3143,11 +3194,13 @@ def concat(
   concatted_struc = table.concat_databases(strucs)
   name = name if name is not None else '_'.join(s.name for s in strucs)
   # Chain IDs (label and author) are fixed at this point, fix also entity IDs.
-  if assign_unique_chain_ids:
-    entity_id = np.char.mod('%d', np.arange(1, concatted_struc.num_chains + 1))
+  if assign_unique_chain_ids or assign_unique_entity_ids:
+    numeric_ids = np.arange(1, concatted_struc.num_chains + 1)
+    entity_id = np.char.mod('%d', numeric_ids).astype(object)
     chains = concatted_struc.chains_table.copy_and_update(entity_id=entity_id)
   else:
     chains = concatted_struc.chains_table
+
   return concatted_struc.copy_and_update(
       name=name,
       release_date=None,

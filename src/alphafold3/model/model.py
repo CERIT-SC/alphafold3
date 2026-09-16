@@ -1,7 +1,16 @@
 # Copyright 2024 DeepMind Technologies Limited
 #
-# AlphaFold 3 source code is licensed under CC BY-NC-SA 4.0. To view a copy of
-# this license, visit https://creativecommons.org/licenses/by-nc-sa/4.0/
+# AlphaFold 3 source code is licensed under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with the
+# License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # To request access to the AlphaFold 3 model parameters, follow the process set
 # out at https://github.com/google-deepmind/alphafold3. You may only use these
@@ -39,10 +48,9 @@ import numpy as np
 
 
 ModelResult: TypeAlias = Mapping[str, Any]
-_ScalarNumberOrArray: TypeAlias = Mapping[str, float | int | np.ndarray]
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class InferenceResult:
   """Postprocessed model result.
 
@@ -58,8 +66,12 @@ class InferenceResult:
   """
 
   predicted_structure: structure.Structure = dataclasses.field()
-  numerical_data: _ScalarNumberOrArray = dataclasses.field(default_factory=dict)
-  metadata: _ScalarNumberOrArray = dataclasses.field(default_factory=dict)
+  numerical_data: Mapping[str, float | int | np.ndarray] = dataclasses.field(
+      default_factory=dict
+  )
+  metadata: Mapping[str, float | int | np.ndarray] = dataclasses.field(
+      default_factory=dict
+  )
   debug_outputs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
   model_id: bytes = b''
 
@@ -110,7 +122,7 @@ def get_predicted_structure(
         zip(
             missing_atoms_flat_layout.chain_id,
             missing_atoms_flat_layout.res_id,
-            missing_atoms_flat_layout.res_name,
+            missing_atoms_flat_layout.res_name,  # pyrefly: ignore[bad-argument-type]
             missing_atoms_flat_layout.atom_name,
         )
     )
@@ -126,10 +138,10 @@ def get_predicted_structure(
   # Put them into a structure
   pred_struc = batch.convert_model_output.empty_output_struc
   pred_struc = pred_struc.copy_and_update_atoms(
-      atom_x=pred_flat_atom_coords[..., 0],
-      atom_y=pred_flat_atom_coords[..., 1],
-      atom_z=pred_flat_atom_coords[..., 2],
-      atom_b_factor=pred_flat_b_factors,
+      atom_x=pred_flat_atom_coords[..., 0],  # pyrefly: ignore[bad-argument-type]
+      atom_y=pred_flat_atom_coords[..., 1],  # pyrefly: ignore[bad-argument-type]
+      atom_z=pred_flat_atom_coords[..., 2],  # pyrefly: ignore[bad-argument-type]
+      atom_b_factor=pred_flat_b_factors,  # pyrefly: ignore[bad-argument-type]
       atom_occupancy=np.ones(pred_flat_atom_coords.shape[:-1]),  # Always 1.0.
   )
   # Set manually/differently when adding metadata.
@@ -224,6 +236,7 @@ class Model(hk.Module):
     heads: 'Model.HeadsConfig' = base_config.autocreate()
     num_recycles: int = 10
     return_embeddings: bool = False
+    return_distogram: bool = False
 
   def __init__(self, config: Config, name: str = 'diffuser'):
     super().__init__(name=name)
@@ -262,13 +275,13 @@ class Model(hk.Module):
     if key is None:
       key = hk.next_rng_key()
 
-    batch = feat_batch.Batch.from_data_dict(batch)
+    batch = feat_batch.Batch.from_data_dict(batch)  # pyrefly: ignore[bad-assignment]
 
     embedding_module = evoformer_network.Evoformer(
         self.config.evoformer, self.global_config
     )
     target_feat = create_target_feat_embedding(
-        batch=batch,
+        batch=batch,  # pyrefly: ignore[bad-argument-type]
         config=embedding_module.config,
         global_config=self.global_config,
     )
@@ -286,7 +299,7 @@ class Model(hk.Module):
       embeddings['single'] = embeddings['single'].astype(jnp.float32)
       return embeddings, key
 
-    num_res = batch.num_res
+    num_res = batch.num_res  # pyrefly: ignore[missing-attribute]
 
     embeddings = {
         'pair': jnp.zeros(
@@ -306,7 +319,7 @@ class Model(hk.Module):
       embeddings, _ = hk.fori_loop(0, num_iter, recycle_body, (embeddings, key))
 
     samples = self._sample_diffusion(
-        batch,
+        batch,  # pyrefly: ignore[bad-argument-type]
         embeddings,
         sample_config=self.config.heads.diffusion.eval,
     )
@@ -318,16 +331,16 @@ class Model(hk.Module):
         )(
             dense_atom_positions=dense_atom_positions,
             embeddings=embeddings,
-            seq_mask=batch.token_features.mask,
-            token_atoms_to_pseudo_beta=batch.pseudo_beta_info.token_atoms_to_pseudo_beta,
-            asym_id=batch.token_features.asym_id,
+            seq_mask=batch.token_features.mask,  # pyrefly: ignore[missing-attribute]
+            token_atoms_to_pseudo_beta=batch.pseudo_beta_info.token_atoms_to_pseudo_beta,  # pyrefly: ignore[missing-attribute]
+            asym_id=batch.token_features.asym_id,  # pyrefly: ignore[missing-attribute]
         ),
         in_axes=0,
     )(samples['atom_positions'])
 
     distogram = distogram_head.DistogramHead(
         self.config.heads.distogram, self.global_config
-    )(batch, embeddings)
+    )(batch, embeddings, return_distogram=self.config.return_distogram)
 
     output = {
         'diffusion_samples': samples,
@@ -363,40 +376,40 @@ class Model(hk.Module):
       dictionary of raw model result from the forward pass (for debugging).
     """
     del target_name
-    batch = feat_batch.Batch.from_data_dict(batch)
+    batch = feat_batch.Batch.from_data_dict(batch)  # pyrefly: ignore[bad-assignment]
 
     # Retrieve structure and construct a predicted structure.
-    pred_structure = get_predicted_structure(result=result, batch=batch)
+    pred_structure = get_predicted_structure(result=result, batch=batch)  # pyrefly: ignore[bad-argument-type]
 
-    num_tokens = batch.token_features.seq_length.item()
+    num_tokens = batch.token_features.seq_length.item()  # pyrefly: ignore[missing-attribute]
 
     pae_single_mask = np.tile(
-        batch.frames.mask[:, None],
-        [1, batch.frames.mask.shape[0]],
+        batch.frames.mask[:, None],  # pyrefly: ignore[missing-attribute]
+        [1, batch.frames.mask.shape[0]],  # pyrefly: ignore[missing-attribute]
     )
     ptm = _compute_ptm(
         result=result,
         num_tokens=num_tokens,
-        asym_id=batch.token_features.asym_id[:num_tokens],
+        asym_id=batch.token_features.asym_id[:num_tokens],  # pyrefly: ignore[missing-attribute]
         pae_single_mask=pae_single_mask,
         interface=False,
     )
     iptm = _compute_ptm(
         result=result,
         num_tokens=num_tokens,
-        asym_id=batch.token_features.asym_id[:num_tokens],
+        asym_id=batch.token_features.asym_id[:num_tokens],  # pyrefly: ignore[missing-attribute]
         pae_single_mask=pae_single_mask,
         interface=True,
     )
     ptm_iptm_average = 0.8 * iptm + 0.2 * ptm
 
-    asym_ids = batch.token_features.asym_id[:num_tokens]
+    asym_ids = batch.token_features.asym_id[:num_tokens]  # pyrefly: ignore[missing-attribute]
     # Map asym IDs back to chain IDs. Asym IDs are constructed from chain IDs by
     # iterating over the chain IDs, and for each unique chain ID incrementing
     # the asym ID by 1 and mapping it to the particular chain ID. Asym IDs are
     # 1-indexed, so subtract 1 to get back to the chain ID.
     chain_ids = [pred_structure.chains[asym_id - 1] for asym_id in asym_ids]
-    res_ids = batch.token_features.residue_index[:num_tokens]
+    res_ids = batch.token_features.residue_index[:num_tokens]  # pyrefly: ignore[missing-attribute]
 
     if len(np.unique(asym_ids[:num_tokens])) > 1:
       # There is more than one chain, hence interface pTM (i.e. ipTM) defined,
@@ -410,24 +423,24 @@ class Model(hk.Module):
     # Compute PAE related summaries.
     _, chain_pair_pae_min, _ = confidences.chain_pair_pae(
         num_tokens=num_tokens,
-        asym_ids=batch.token_features.asym_id,
+        asym_ids=batch.token_features.asym_id,  # pyrefly: ignore[missing-attribute]
         full_pae=result['full_pae'],
         mask=pae_single_mask,
     )
     chain_pair_pde_mean, chain_pair_pde_min = confidences.chain_pair_pde(
         num_tokens=num_tokens,
-        asym_ids=batch.token_features.asym_id,
+        asym_ids=batch.token_features.asym_id,  # pyrefly: ignore[missing-attribute]
         full_pde=result['full_pde'],
     )
     intra_chain_single_pde, cross_chain_single_pde, _ = confidences.pde_single(
         num_tokens,
-        batch.token_features.asym_id,
+        batch.token_features.asym_id,  # pyrefly: ignore[missing-attribute]
         result['full_pde'],
         contact_probs,
     )
     pae_metrics = confidences.pae_metrics(
         num_tokens=num_tokens,
-        asym_ids=batch.token_features.asym_id,
+        asym_ids=batch.token_features.asym_id,  # pyrefly: ignore[missing-attribute]
         full_pae=result['full_pae'],
         mask=pae_single_mask,
         contact_probs=contact_probs,
@@ -435,11 +448,11 @@ class Model(hk.Module):
     )
     ranking_confidence_pae = confidences.rank_metric(
         result['full_pae'],
-        contact_probs * batch.frames.mask[:, None].astype(float),
+        contact_probs * batch.frames.mask[:, None].astype(float),  # pyrefly: ignore[missing-attribute]
     )
     chain_pair_iptm = _compute_chain_pair_iptm(
         num_tokens=num_tokens,
-        asym_ids=batch.token_features.asym_id,
+        asym_ids=batch.token_features.asym_id,  # pyrefly: ignore[missing-attribute]
         mask=pae_single_mask,
         tm_adjusted_pae=result['tmscore_adjusted_pae_interface'],
     )
@@ -463,9 +476,8 @@ class Model(hk.Module):
     # Computing solvent accessible area with dssp can be slow for large
     # structures with lots of chains, so we parallelize the call.
     pred_structures = pred_structure.unstack()
-    num_workers = len(pred_structures)
     with concurrent.futures.ThreadPoolExecutor(
-        max_workers=num_workers
+        max_workers=min(len(pred_structures), 32)
     ) as executor:
       has_clash = list(executor.map(confidences.has_clash, pred_structures))
       fraction_disordered = list(
@@ -486,7 +498,7 @@ class Model(hk.Module):
               'full_pae': result['full_pae'][idx, :num_tokens, :num_tokens],
               'contact_probs': contact_probs[:num_tokens, :num_tokens],
           },
-          metadata={
+          metadata={  # pyrefly: ignore[bad-argument-type]
               'predicted_distance_error': predicted_distance_errors[idx],
               'ranking_score': ranking_score,
               'fraction_disordered': fraction_disordered[idx],

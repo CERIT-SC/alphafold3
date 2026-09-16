@@ -1,7 +1,16 @@
 # Copyright 2024 DeepMind Technologies Limited
 #
-# AlphaFold 3 source code is licensed under CC BY-NC-SA 4.0. To view a copy of
-# this license, visit https://creativecommons.org/licenses/by-nc-sa/4.0/
+# AlphaFold 3 source code is licensed under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with the
+# License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # To request access to the AlphaFold 3 model parameters, follow the process set
 # out at https://github.com/google-deepmind/alphafold3. You may only use these
@@ -83,7 +92,7 @@ class Bonds(table.Table):
     from_atom_mask = np.isin(self.from_atom_key, atom_key)
     dest_atom_mask = np.isin(self.dest_atom_key, atom_key)
     mask = np.logical_and(from_atom_mask, dest_atom_mask)
-    return typing.cast(Bonds, self.filter(mask=mask))
+    return typing.cast(Bonds, self.filter(mask=mask))  # pyrefly: ignore[bad-return]
 
   def to_mmcif_dict_from_atom_arrays(
       self,
@@ -108,59 +117,59 @@ class Bonds(table.Table):
       auth_seq_id: A (num_atom,) array of auth_seq_id strings.
       insertion_code: A (num_atom,) array of insertion code strings.
     """
-    mmcif_dict = collections.defaultdict(list)
-    ptnr1_indices, ptnr2_indices = self.get_atom_indices(atom_key)
+    cif = collections.defaultdict(list)
+    p1_indices, p2_indices = self.get_atom_indices(atom_key)
 
-    mmcif_dict['_struct_conn.ptnr1_label_asym_id'] = chain_id[ptnr1_indices]
-    mmcif_dict['_struct_conn.ptnr2_label_asym_id'] = chain_id[ptnr2_indices]
-    mmcif_dict['_struct_conn.ptnr1_label_comp_id'] = res_name[ptnr1_indices]
-    mmcif_dict['_struct_conn.ptnr2_label_comp_id'] = res_name[ptnr2_indices]
-    mmcif_dict['_struct_conn.ptnr1_label_seq_id'] = res_id[ptnr1_indices]
-    mmcif_dict['_struct_conn.ptnr2_label_seq_id'] = res_id[ptnr2_indices]
-    mmcif_dict['_struct_conn.ptnr1_label_atom_id'] = atom_name[ptnr1_indices]
-    mmcif_dict['_struct_conn.ptnr2_label_atom_id'] = atom_name[ptnr2_indices]
+    cif['_struct_conn.ptnr1_label_asym_id'] = chain_id[p1_indices].tolist()
+    cif['_struct_conn.ptnr2_label_asym_id'] = chain_id[p2_indices].tolist()
+    cif['_struct_conn.ptnr1_label_comp_id'] = res_name[p1_indices].tolist()
+    cif['_struct_conn.ptnr2_label_comp_id'] = res_name[p2_indices].tolist()
+    cif['_struct_conn.ptnr1_label_seq_id'] = res_id[p1_indices].tolist()
+    cif['_struct_conn.ptnr2_label_seq_id'] = res_id[p2_indices].tolist()
+    cif['_struct_conn.ptnr1_label_atom_id'] = atom_name[p1_indices].tolist()
+    cif['_struct_conn.ptnr2_label_atom_id'] = atom_name[p2_indices].tolist()
 
-    mmcif_dict['_struct_conn.ptnr1_auth_asym_id'] = auth_asym_id[ptnr1_indices]
-    mmcif_dict['_struct_conn.ptnr2_auth_asym_id'] = auth_asym_id[ptnr2_indices]
-    mmcif_dict['_struct_conn.ptnr1_auth_seq_id'] = auth_seq_id[ptnr1_indices]
-    mmcif_dict['_struct_conn.ptnr2_auth_seq_id'] = auth_seq_id[ptnr2_indices]
-    mmcif_dict['_struct_conn.pdbx_ptnr1_PDB_ins_code'] = insertion_code[
-        ptnr1_indices
-    ]
-    mmcif_dict['_struct_conn.pdbx_ptnr2_PDB_ins_code'] = insertion_code[
-        ptnr2_indices
-    ]
+    cif['_struct_conn.ptnr1_auth_asym_id'] = auth_asym_id[p1_indices].tolist()
+    cif['_struct_conn.ptnr2_auth_asym_id'] = auth_asym_id[p2_indices].tolist()
+    cif['_struct_conn.ptnr1_auth_seq_id'] = auth_seq_id[p1_indices].tolist()
+    cif['_struct_conn.ptnr2_auth_seq_id'] = auth_seq_id[p2_indices].tolist()
+    cif['_struct_conn.pdbx_ptnr1_PDB_ins_code'] = insertion_code[
+        p1_indices
+    ].tolist()
+    cif['_struct_conn.pdbx_ptnr2_PDB_ins_code'] = insertion_code[
+        p2_indices
+    ].tolist()
 
     label_alt_id = ['?'] * self.size
-    mmcif_dict['_struct_conn.pdbx_ptnr1_label_alt_id'] = label_alt_id
-    mmcif_dict['_struct_conn.pdbx_ptnr2_label_alt_id'] = label_alt_id
+    cif['_struct_conn.pdbx_ptnr1_label_alt_id'] = label_alt_id
+    cif['_struct_conn.pdbx_ptnr2_label_alt_id'] = label_alt_id
 
     # We need to set this to make visualisation work in NGL/PyMOL.
-    mmcif_dict['_struct_conn.pdbx_value_order'] = ['?'] * self.size
+    cif['_struct_conn.pdbx_value_order'] = ['?'] * self.size
 
     # We use a symmetry of 1_555 which is the no-op transformation. Other
     # values are used when bonds involve atoms that only exist after expanding
     # the bioassembly, but we don't support this kind of bond at the moment.
     symmetry = ['1_555'] * self.size
-    mmcif_dict['_struct_conn.ptnr1_symmetry'] = symmetry
-    mmcif_dict['_struct_conn.ptnr2_symmetry'] = symmetry
+    cif['_struct_conn.ptnr1_symmetry'] = symmetry
+    cif['_struct_conn.ptnr2_symmetry'] = symmetry
     bond_type_counter = collections.Counter()
     for bond_row in self.iterrows():
       bond_type = bond_row['type']
       bond_type_counter[bond_type] += 1
-      mmcif_dict['_struct_conn.id'].append(
+      cif['_struct_conn.id'].append(
           f'{bond_type}{bond_type_counter[bond_type]}'
       )
-      mmcif_dict['_struct_conn.pdbx_role'].append(bond_row['role'])
-      mmcif_dict['_struct_conn.conn_type_id'].append(bond_type)
+      cif['_struct_conn.pdbx_role'].append(bond_row['role'])
+      cif['_struct_conn.conn_type_id'].append(bond_type)
 
-    bond_types = np.unique(self.type)
-    mmcif_dict['_struct_conn_type.id'] = bond_types
+    bond_types = np.unique(self.type).tolist()
+    cif['_struct_conn_type.id'] = bond_types
     unknown = ['?'] * len(bond_types)
-    mmcif_dict['_struct_conn_type.criteria'] = unknown
-    mmcif_dict['_struct_conn_type.reference'] = unknown
+    cif['_struct_conn_type.criteria'] = unknown
+    cif['_struct_conn_type.reference'] = unknown
 
-    return dict(mmcif_dict)
+    return dict(cif)
 
 
 def concat_with_atom_keys(

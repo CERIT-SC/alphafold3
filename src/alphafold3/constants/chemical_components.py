@@ -1,7 +1,16 @@
 # Copyright 2024 DeepMind Technologies Limited
 #
-# AlphaFold 3 source code is licensed under CC BY-NC-SA 4.0. To view a copy of
-# this license, visit https://creativecommons.org/licenses/by-nc-sa/4.0/
+# AlphaFold 3 source code is licensed under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with the
+# License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # To request access to the AlphaFold 3 model parameters, follow the process set
 # out at https://github.com/google-deepmind/alphafold3. You may only use these
@@ -14,15 +23,24 @@ from collections.abc import ItemsView, Iterator, KeysView, Mapping, Sequence, Va
 import dataclasses
 import functools
 import os
-import pickle
 
 from alphafold3.common import resources
+from alphafold3.common import safe_pickle
 from alphafold3.cpp import cif_dict
 
 
 _CCD_PICKLE_FILE = resources.filename(
     resources.ROOT / 'constants/converters/ccd.pickle'
 )
+
+
+@functools.cache
+def _load_ccd_pickle_cached(
+    path: os.PathLike[str],
+) -> dict[str, Mapping[str, Sequence[str]]]:
+  """Loads the CCD pickle file and caches it so that it is only loaded once."""
+  with open(path, 'rb') as f:
+    return safe_pickle.load(f)
 
 
 class Ccd(Mapping[str, Mapping[str, Sequence[str]]]):
@@ -52,22 +70,23 @@ class Ccd(Mapping[str, Mapping[str, Sequence[str]]]):
         be used to override specific entries in the CCD if desired.
     """
     self._ccd_pickle_path = ccd_pickle_path or _CCD_PICKLE_FILE
-    with open(self._ccd_pickle_path, 'rb') as f:
-      self._dict = pickle.loads(f.read())
+    self._dict = _load_ccd_pickle_cached(self._ccd_pickle_path)
 
     if user_ccd is not None:
       if not user_ccd:
         raise ValueError('User CCD cannot be an empty string.')
       user_ccd_cifs = {
-          key: {k: tuple(v) for k, v in value.items()}
+          key: value.to_dict()
           for key, value in cif_dict.parse_multi_data_cif(user_ccd).items()
       }
       self._dict.update(user_ccd_cifs)
 
-  def __getitem__(self, key: str) -> Mapping[str, Sequence[str]]:
+  def __getitem__(self, key: object) -> Mapping[str, Sequence[str]]:
+    if not isinstance(key, str):
+      raise TypeError(f'The CCD key must be a string, got {type(key)}')
     return self._dict[key]
 
-  def __contains__(self, key: str) -> bool:
+  def __contains__(self, key: object) -> bool:
     return key in self._dict
 
   def __iter__(self) -> Iterator[str]:
@@ -79,7 +98,7 @@ class Ccd(Mapping[str, Mapping[str, Sequence[str]]]):
   def __hash__(self) -> int:
     return id(self)  # Ok since this is immutable.
 
-  def get(
+  def get(  # pyrefly: ignore[bad-override]
       self, key: str, default: None | Mapping[str, Sequence[str]] = None
   ) -> Mapping[str, Sequence[str]] | None:
     return self._dict.get(key, default)
@@ -92,11 +111,6 @@ class Ccd(Mapping[str, Mapping[str, Sequence[str]]]):
 
   def keys(self) -> KeysView[str]:
     return self._dict.keys()
-
-
-@functools.cache
-def cached_ccd(user_ccd: str | None = None) -> Ccd:
-  return Ccd(user_ccd=user_ccd)
 
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)

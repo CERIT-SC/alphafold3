@@ -5,9 +5,20 @@
 You can provide inputs to `run_alphafold.py` in one of two ways:
 
 -   Single input file: Use the `--json_path` flag followed by the path to a
-    single JSON file.
+    single JSON file. This path can be either a local path or a Google Cloud
+    Storage path (starting with `gs://`), if enabled.
 -   Multiple input files: Use the `--input_dir` flag followed by the path to a
-    directory of JSON files.
+    directory of JSON files. This path can be either a local directory path or a
+    GCS path, if enabled.
+-   Within an input file, fields with names ending in `Path` (e.g.
+    `pairedMsaPath`) can be provided as Google Cloud Storage paths, if enabled.
+
+### Note: Google Cloud Storage paths
+
+Google Cloud Storage (`gs://`) paths are supported for certain flags and fields
+if the optional `gcsfs` dependency is installed. See the
+[installation instructions](installation.md#optional-enable-google-cloud-storage-path-support)
+for details and a complete list of supported paths.
 
 ## Input Format
 
@@ -28,6 +39,9 @@ The custom AlphaFold 3 format allows:
     them via the [user-provided CCD](#user-provided-ccd).
 *   Specifying covalent bonds between entities.
 *   Specifying multiple random seeds.
+
+Multiple examples of input JSON files are provided in
+https://github.com/google-deepmind/alphafold3/tree/main/examples.
 
 ## AlphaFold Server JSON Compatibility
 
@@ -117,7 +131,7 @@ The top-level structure of the input JSON is:
   "userCCD": "...",  # Optional, mutually exclusive with userCCDPath.
   "userCCDPath": "...",  # Optional, mutually exclusive with userCCD.
   "dialect": "alphafold3",  # Required.
-  "version": 3  # Required.
+  "version": 4  # Required.
 }
 ```
 
@@ -166,6 +180,8 @@ The top-level `version` field (for the `alphafold3` dialect) can be either `1`,
     added fields `unpairedMsaPath`, `pairedMsaPath`, and `mmcifPath`.
 *   `3`: added the option of specifying external user-provided CCD using newly
     added field `userCCDPath`.
+*   `4`: added the option of specifying textual `description` of protein chains,
+    RNA chains, DNA chains, or ligands.
 
 ## Sequences
 
@@ -186,6 +202,7 @@ Specifies a single protein chain.
       {"ptmType": "HY3", "ptmPosition": 1},
       {"ptmType": "P1L", "ptmPosition": 5}
     ],
+    "description": ...,  # Optional.
     "unpairedMsa": ...,  # Mutually exclusive with unpairedMsaPath.
     "unpairedMsaPath": ...,  # Mutually exclusive with unpairedMsa.
     "pairedMsa": ...,  # Mutually exclusive with pairedMsaPath.
@@ -207,6 +224,9 @@ The fields specify the following:
     post-translational modifications. Each modification is specified using its
     CCD code and 1-based residue position. In the example above, we see that the
     first residue won't be a proline (`P`) but instead `HY3`.
+*   `description: str`: An optional textual description of this chain. This
+    field will is only used in the JSON format and serves as a comment
+    describing this chain.
 *   `unpairedMsa: str`: An optional multiple sequence alignment for this chain.
     This is specified using the A3M format (equivalent to the FASTA format, but
     also allows gaps denoted by the hyphen `-` character). See more details
@@ -239,6 +259,7 @@ Specifies a single RNA chain.
       {"modificationType": "2MG", "basePosition": 1},
       {"modificationType": "5MC", "basePosition": 4}
     ],
+    "description": ...,  # Optional.
     "unpairedMsa": ...,  # Mutually exclusive with unpairedMsaPath.
     "unpairedMsaPath": ...  # Mutually exclusive with unpairedMsa.
   }
@@ -255,6 +276,9 @@ The fields specify the following:
     letters `A`, `C`, `G`, `U`.
 *   `modifications: list[RnaModification]`: An optional list of modifications.
     Each modification is specified using its CCD code and 1-based base position.
+*   `description: str`: An optional textual description of this chain. This
+    field will is only used in the JSON format and serves as a comment
+    describing this chain.
 *   `unpairedMsa: str`: An optional multiple sequence alignment for this chain.
     This is specified using the A3M format. See more details below.
 *   `unpairedMsaPath: str`: An optional path to a file that contains the
@@ -275,7 +299,8 @@ Specifies a single DNA chain.
     "modifications": [
       {"modificationType": "6OG", "basePosition": 1},
       {"modificationType": "6MA", "basePosition": 2}
-    ]
+    ],
+    "description": ...  # Optional.
   }
 }
 ```
@@ -290,6 +315,9 @@ The fields specify the following:
     letters `A`, `C`, `G`, `T`.
 *   `modifications: list[DnaModification]`: An optional list of modifications.
     Each modification is specified using its CCD code and 1-based base position.
+*   `description: str`: An optional textual description of this chain. This
+    field will is only used in the JSON format and serves as a comment
+    describing this chain.
 
 ### Ligands
 
@@ -314,19 +342,22 @@ Specifies a single ligand. Ligands can be specified using 3 different formats:
 {
   "ligand": {
     "id": ["G", "H", "I"],
-    "ccdCodes": ["ATP"]
+    "ccdCodes": ["ATP"],
+    "description": ...  # Optional.
   }
 },
 {
   "ligand": {
     "id": "J",
-    "ccdCodes": ["LIG-1337"]
+    "ccdCodes": ["LIG-1337"],
+    "description": ...  # Optional.
   }
 },
 {
   "ligand": {
     "id": "K",
-    "smiles": "CC(=O)OC1C[NH+]2CCC1CC2"
+    "smiles": "CC(=O)OC1C[NH+]2CCC1CC2",
+    "description": ...  # Optional.
   }
 }
 ```
@@ -342,6 +373,9 @@ The fields specify the following:
     [user-provided CCD](#user-provided-ccd).
 *   `smiles: str`: An optional string defining the ligand using a SMILES string.
     The SMILES string must be correctly JSON-escaped.
+*   `description: str`: An optional textual description of this chain. This
+    field will is only used in the JSON format and serves as a comment
+    describing this ligand.
 
 Each ligand may be specified using CCD codes or SMILES but not both, i.e. for a
 given ligand, the `ccdCodes` and `smiles` fields are mutually exclusive.
@@ -404,10 +438,11 @@ the paper.
 
 RNA `unpairedMsa` can be either:
 
-1.  Unset (or set explicitly to `null`). AlphaFold 3 won't build MSA for this
-    RNA chain.
-2.  Set to an empty string (`""`). AlphaFold 3 won't build MSA and will run
-    MSA-free for this RNA chain.
+1.  Unset (or set explicitly to `null`). AlphaFold 3 will build MSA for this RNA
+    chain automatically. This is the recommended option.
+2.  Set to an empty string (`""`). AlphaFold 3 won't build the MSA for this RNA
+    chain and the MSA input to the model will be just the RNA chain (equivalent
+    to running MSA-free for this RNA chain).
 3.  Set to a non-empty A3M string. AlphaFold 3 will use the provided MSA for
     this RNA chain.
 
@@ -418,7 +453,7 @@ unpaired MSA (see [MSA Pairing](#msa-pairing) below for more details).
 
 The following combinations are valid for a given protein chain:
 
-1.  Both `unpairedMsa` and `pairedMsa` fields are unset (or explicitly set to
+1.  Both `unpairedMsa` and `pairedMsa` fields are unset (or set explicitly to
     `null`), AlphaFold 3 will build both MSAs automatically. This is the
     recommended option.
 2.  The `unpairedMsa` is set to to a non-empty A3M string, `pairedMsa` set to an
@@ -485,6 +520,12 @@ opposed to relying on name-matching post-processing heuristics used for
 
 When setting `unpairedMsa` manually, the `pairedMsa` must be explicitly set to
 an empty string (`""`).
+
+Make sure to run with `--resolve_msa_overlaps=false`. This prevents
+deduplication of the unpaired MSA within each chain against the paired MSA
+sequences. Even if you set `pairedMsa` to an empty string, the query sequence(s)
+will still be added in there and the deduplication procedure could destroy the
+carefully crafted sequence positioning in the unpaired MSA.
 
 For instance, if there are two chains `DEEP` and `MIND` which we want to be
 paired on organism A and C, we can achieve it as follows:
@@ -716,6 +757,39 @@ as it could cause issues in the mmCIF format.
 The newly defined ligand can then be used as a standard CCD ligand using its
 custom name, and bonds can be linked to it using its named atom scheme.
 
+### Using user-provided CCD for polymer modifications
+
+The user-provided CCD can also be used for specifying non-canonical amino acids
+or nucleotides in the protein/RNA/DNA chains, not only custom ligands.
+
+In this case, the custom component is referenced from the polymer
+`modifications` field using its CCD component ID:
+
+```json
+{
+  "protein": {
+    "id": "A",
+    "sequence": "MDQHQAFKEATELLEKMKTSSDEERVEYLRKAVRLFNLTSEGQQGELVGKFKEAGVLIRAVDLS",
+    "modifications": [{"ptmType": "MYMOD", "ptmPosition": 30}]
+  }
+}
+```
+
+In the example above, residue 30 is replaced by the custom component `MYMOD`.
+
+*   `ptmType` must match the component ID defined in the user-provided CCD.
+*   The user-provided CCD should describe an appropriate peptide-linking polymer
+    component rather than a free non-polymer ligand.
+*   The user-provided CCD entry should include the expected backbone atoms and
+    bond graph for the residue, adjusted for the residue position in the polymer
+    chain. E.g. atoms and bond graphs for the mid-chain residue and terminal
+    residue may differ.
+
+The same principle applies to RNA and DNA chains. This workflow is useful for
+modeling non-canonical amino acids or nucleotides in the context of polymer
+chains. By contrast, external covalent ligands should generally be modeled as
+ligand entities plus `bondedAtomPairs`.
+
 ### Conformer Generation
 
 The data pipeline attempts to generate a conformer for ligands using RDKit. The
@@ -912,7 +986,9 @@ certain fields and the sequences are not biologically meaningful.
           {"ptmType": "HY3", "ptmPosition": 1},
           {"ptmType": "P1L", "ptmPosition": 5}
         ],
+        "description": "10-residue protein with 2 modifications",
         "unpairedMsa": ...,
+        "pairedMsa": ""
       }
     },
     {
@@ -974,7 +1050,6 @@ certain fields and the sequences are not biologically meaningful.
   ],
   "userCCD": ...,
   "dialect": "alphafold3",
-  "version": 3
+  "version": 4
 }
-
 ```

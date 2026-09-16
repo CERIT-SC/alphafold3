@@ -1,7 +1,16 @@
 // Copyright 2024 DeepMind Technologies Limited
 //
-// AlphaFold 3 source code is licensed under CC BY-NC-SA 4.0. To view a copy of
-// this license, visit https://creativecommons.org/licenses/by-nc-sa/4.0/
+// AlphaFold 3 source code is licensed under the Apache License, Version 2.0
+// (the "License"); you may not use this file except in compliance with the
+// License. You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // To request access to the AlphaFold 3 model parameters, follow the process set
 // out at https://github.com/google-deepmind/alphafold3. You may only use these
@@ -116,7 +125,7 @@ absl::StatusOr<std::vector<absl::string_view>> TokenizeInternal(
   tokens.reserve(lines.size() * 21);
   int line_num = 0;
   while (line_num < lines.size()) {
-    auto line = lines[line_num];
+    auto line = absl::StripSuffix(lines[line_num], "\r");
     line_num++;
 
     if (line.empty() || line[0] == '#') {
@@ -134,6 +143,9 @@ absl::StatusOr<std::vector<absl::string_view>> TokenizeInternal(
         line_num++;
         if (!multiline.empty() && multiline[0] == ';') {
           break;
+        } else if (line_num == lines.size()) {
+          return absl::InvalidArgumentError(
+              "Last multiline token is not terminated by a semicolon.");
         }
         multiline_tokens.push_back(multiline);
       }
@@ -150,17 +162,39 @@ absl::StatusOr<std::vector<absl::string_view>> TokenizeInternal(
   return tokens;
 }
 
+// Returns whether the token doesn't need any quoting. This is true if the token
+// isn't empty and contains only safe characters [A-Za-z0-9.?-].
+bool IsTrivialToken(const absl::string_view value) {
+  if (value.empty()) {
+    return false;
+  }
+
+  return std::all_of(value.begin(), value.end(), [](char c) {
+    return absl::ascii_isalnum(c) || c == '.' || c == '?' || c == '-';
+  });
+}
+
+// Returns whether the token needs to be a multiline token. This happens if it
+// has a newline or both single and double quotes.
+bool IsMultiLineToken(const absl::string_view value) {
+  bool has_single_quotes = false;
+  bool has_double_quotes = false;
+  for (const char c : value) {
+    if (c == '\n') {
+      return true;
+    } else if (c == '\'') {
+      has_single_quotes = true;
+    } else if (c == '"') {
+      has_double_quotes = true;
+    }
+  }
+  return has_single_quotes && has_double_quotes;
+}
+
 absl::string_view GetEscapeQuote(const absl::string_view value) {
   // Empty values should not happen, but if so, they should be quoted.
   if (value.empty()) {
     return "\"";
-  }
-
-  // Shortcut for the most common cases where no quoting needed.
-  if (std::all_of(value.begin(), value.end(), [](char c) {
-        return absl::ascii_isalnum(c) || c == '.' || c == '?' || c == '-';
-      })) {
-    return "";
   }
 
   // The value must not start with one of these CIF keywords.
@@ -179,13 +213,26 @@ absl::string_view GetEscapeQuote(const absl::string_view value) {
     return "\"";
   }
 
-  // No quotes or whitespace allowed inside.
+  // No quotes or whitespace allowed inside. Rare case when both double and
+  // single quotes are present is handled by IsMultiLineToken.
+  bool use_double_quote = true;
+  bool use_single_quote = true;
+  bool needs_quote = false;
   for (const char c : value) {
-    if (c == '"') {
-      return "'";
-    } else if (c == '\'' || c == ' ' || c == '\t') {
-      return "\"";
+    if (c == ' ' || c == '\t') {
+      needs_quote = true;
+    } else if (c == '"') {
+      needs_quote = true;
+      use_double_quote = false;
+    } else if (c == '\'') {
+      needs_quote = true;
+      use_single_quote = false;
     }
+  }
+  if (needs_quote && use_double_quote) {
+    return "\"";
+  } else if (needs_quote && use_single_quote) {
+    return "'";
   }
   return "";
 }
@@ -254,7 +301,11 @@ class Column {
     int max_value_length = 0;
     for (size_t i = 0; i < values->size(); ++i) {
       absl::string_view value = (*values)[i];
-      if (absl::StrContains(value, '\n')) {
+      if (IsTrivialToken(value)) {
+        // Shortcut for the most common cases where no quoting/multiline needed.
+        max_value_length = std::max<int>(max_value_length, value.size());
+        continue;
+      } else if (IsMultiLineToken(value)) {
         values_with_newlines_.insert(i);
       } else {
         absl::string_view quote = GetEscapeQuote(value);
@@ -301,6 +352,16 @@ struct GroupedKeys {
   int value_size;
 };
 
+absl::Status CheckLoopColumnSizes(int num_loop_keys, int num_loop_values) {
+  if ((num_loop_keys > 0) && (num_loop_values % num_loop_keys != 0)) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "The number of values (%d) in a loop is not a multiple of the "
+        "number of the loop's columns (%d)",
+        num_loop_values, num_loop_keys));
+  }
+  return absl::OkStatus();
+}
+
 }  // namespace
 
 absl::StatusOr<CifDict> CifDict::FromString(absl::string_view cif_string) {
@@ -325,41 +386,58 @@ absl::StatusOr<CifDict> CifDict::FromString(absl::string_view cif_string) {
     return absl::InvalidArgumentError(
         "The CIF file does not start with the data_ field.");
   }
+  if (first_token.empty()) {
+    return absl::InvalidArgumentError(
+        "The CIF file does not contain a data block name.");
+  }
   cif["data_"].emplace_back(first_token);
 
   // Counters for CIF loop_ regions.
-  int loop_token_index = 0;
   int num_loop_keys = 0;
   // Loops have usually O(10) columns but could have up to O(10^6) rows. It is
   // therefore wasteful to look up the cif vector where to add a loop value
   // since that means doing `columns * rows` map lookups. If we save pointers to
   // these loop column fields instead, we need only 1 cif lookup per column.
   std::vector<std::vector<std::string>*> loop_column_values;
+  // Use a resetting column index instead of computing modulo on every token.
+  // This is the hot path for _atom_site tables with millions of values.
+  int token_column_index = 0;
+  // Total number of loop values seen (for column size validation).
+  int loop_token_count = 0;
 
   // Skip the first element since we already processed it above.
   for (auto token_itr = tokens->begin() + 1; token_itr != tokens->end();
        ++token_itr) {
     auto token = *token_itr;
     if (absl::EqualsIgnoreCase(token, "loop_")) {
-      // A new loop started, get rid of old loop's data.
+      // A new loop started, check the previous loop and get rid of its data.
+      absl::Status loop_status =
+          CheckLoopColumnSizes(num_loop_keys, loop_token_count);
+      if (!loop_status.ok()) {
+        return loop_status;
+      }
       loop_flag = true;
       loop_column_values.clear();
-      loop_token_index = 0;
+      token_column_index = 0;
+      loop_token_count = 0;
       num_loop_keys = 0;
       continue;
     } else if (loop_flag) {
       // The second condition checks we are in the first column. Some mmCIF
       // files (e.g. 4q9r) have values in later columns starting with an
       // underscore and we don't want to read these as keys.
-      int token_column_index =
-          num_loop_keys == 0 ? 0 : loop_token_index % num_loop_keys;
       if (token_column_index == 0 && !token.empty() && token[0] == '_') {
-        if (loop_token_index > 0) {
+        if (loop_token_count > 0) {
           // We are out of the loop.
           loop_flag = false;
         } else {
           // We are in the keys (column names) section of the loop.
-          auto& columns = cif[token];
+          auto [it, inserted] = cif.try_emplace(token);
+          if (!inserted) {
+            return absl::InvalidArgumentError(
+                absl::StrCat("Duplicate loop key: '", token, "'"));
+          }
+          auto& columns = it->second;
           columns.clear();
 
           // Heuristic: _atom_site is typically the largest table in an mmCIF
@@ -383,16 +461,34 @@ absl::StatusOr<CifDict> CifDict::FromString(absl::string_view cif_string) {
                            " expected at most: ", loop_column_values.size()));
         }
         loop_column_values[token_column_index]->emplace_back(token);
-        loop_token_index++;
+        loop_token_count++;
+        if (++token_column_index == num_loop_keys) {
+          // We have completed a row, reset the column index for the next row.
+          token_column_index = 0;
+        }
         continue;
       }
     }
     if (key.empty()) {
       key = token;
+      if (!absl::StartsWith(key, "_")) {
+        return absl::InvalidArgumentError(
+            absl::StrCat("Key '", key, "' does not start with an underscore."));
+      }
     } else {
-      cif[key].emplace_back(token);
+      auto [it, inserted] = cif.try_emplace(key);
+      if (!inserted) {
+        return absl::InvalidArgumentError(
+            absl::StrCat("Duplicate key: '", key, "'"));
+      }
+      (it->second).emplace_back(token);
       key = "";
     }
+  }
+  absl::Status loop_status =
+      CheckLoopColumnSizes(num_loop_keys, loop_token_count);
+  if (!loop_status.ok()) {
+    return loop_status;
   }
   return CifDict(std::move(cif));
 }
