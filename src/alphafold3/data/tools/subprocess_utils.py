@@ -21,11 +21,14 @@
 
 from collections.abc import Sequence
 import os
+import random
 import subprocess
 import time
 from typing import Any
 
 from absl import logging
+
+from .k8s_utils import KubernetesExecutor
 
 
 def create_query_fasta_file(sequence: str, path: str, linewidth: int = 80):
@@ -48,6 +51,36 @@ def check_binary_exists(path: os.PathLike[str] | str | None, name: str) -> None:
     )
   if not os.path.exists(path):
     raise RuntimeError(f'{name} binary not found at {path}')
+  
+
+def run_in_k8s(cmd: Sequence[str], cmd_name: str) -> None:
+  metrics_output = os.environ.get('K8S_METRICS_OUTPUT', '')
+  executor = KubernetesExecutor(metrics_output=metrics_output)
+
+  namespace = os.environ.get('K8S_NAMESPACE', '')
+  image = os.environ.get('K8S_IMAGE', '')
+  job_name = os.environ.get('K8S_JOB_NAME', '')
+  pvc_mounts = executor.parse_pvc_mounts(os.environ.get('K8S_PVC_MOUNTS', ''))
+
+  salt = '{:08x}'.format(random.getrandbits(32))
+
+  logging.info('Launching subprocess "%s"', ' '.join(cmd))
+  start_time = time.time()
+  job = executor.create_job(
+    name=f"{job_name}-cpu-{cmd_name.lower().split(' ')[0]}-{salt}",
+    namespace=namespace,
+    labels={"job": job_name},
+    image=image,
+    command=[cmd[0]],
+    args=list(cmd[1:]),
+    pvc_mounts=pvc_mounts,
+    cpu=('8', '16'),
+    memory=('16Gi', '64Gi'))
+  executor.wait_for_job_to_finish(job, print_metrics=True) 
+  executor.delete_job(job)
+  end_time = time.time()
+
+  logging.info('Finished %s in %.3f seconds', cmd_name, end_time - start_time)
 
 
 def jackhmmer_seq_limit_supported(jackhmmer_path: str) -> bool:
@@ -72,7 +105,7 @@ def run(
     log_stdout: bool = False,
     max_out_streams_len: int | None = 500_000,
     **run_kwargs,
-) -> subprocess.CompletedProcess[Any]:
+) -> subprocess.CompletedProcess[Any] | None:
   """Launches a subprocess, times it, and checks for errors.
 
   Args:
@@ -92,6 +125,10 @@ def run(
   Raises:
     RuntimeError: if the process completes with a non-zero return code.
   """
+  
+  if os.getenv('RUN_K8S_JOBS', '0') == '1':
+    run_in_k8s(cmd, cmd_name, **run_kwargs)
+    return None
 
   logging.info('Launching subprocess "%s"', ' '.join(cmd))
 

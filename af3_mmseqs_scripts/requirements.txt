@@ -1,0 +1,5 @@
+biopython==1.84
+requests
+tqdm
+colorama==0.4.6
+numpy

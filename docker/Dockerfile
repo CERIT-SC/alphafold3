@@ -20,14 +20,21 @@
 FROM nvidia/cuda:12.6.3-base-ubuntu24.04
 
 # Some RUN statements are combined together to make Docker build run faster.
+
 # Get latest package listing, install python, git, wget, compilers and libs.
 # * git is required for pyproject.toml toolchain's use of CMakeLists.txt.
 # * gcc, g++, make are required for compiling HMMER and AlphaFold 3 libaries.
 # * zlib is a required dependency of AlphaFold 3.
 RUN DEBIAN_FRONTEND=noninteractive \
-apt-get update --quiet \
-&& apt-get install --yes --quiet python3.12 python3.12-dev \
-&& apt-get install --yes --quiet git wget gcc g++ make zlib1g-dev zstd
+    apt-get update --quiet \
+    && apt-get install --yes --quiet python3.12 python3.12-dev \
+    && apt-get install --yes --quiet git wget gcc g++ make zlib1g-dev zstd zip ssmtp && apt-get clean
+
+RUN sed 's/mailhub.*/mailhub=relay.muni.cz/' -i /etc/ssmtp/ssmtp.conf
+RUN sed 's/reqriteDomain.*/rewriteDomain=cerit-sc.cz/' -i /etc/ssmtp/ssmtp.conf
+RUN sed 's/FromLineOv.*/FromLineOverride=yes/' -i /etc/ssmtp/ssmtp.conf
+RUN echo "FromLineOverride=yes" >> /etc/ssmtp/ssmtp.conf
+RUN chmod 755 /etc/ssmtp && chmod 644 /etc/ssmtp/ssmtp.conf
 
 # Install uv from the official repository. The version is pinned for
 # reproducibility.
@@ -66,10 +73,11 @@ RUN (cd /hmmer_build/hmmer-3.4 && ./configure --prefix /hmmer) && \
     (cd /hmmer_build/hmmer-3.4/easel && make install) && \
     rm -R /hmmer_build
 
+WORKDIR /app/alphafold
+
 # Copy the AlphaFold 3 source code from the local machine to the container and
 # set the working directory to there.
 COPY . /app/alphafold
-WORKDIR /app/alphafold
 
 # Install the exact dependency tree using uv and cache the build artifacts.
 # --frozen: do not update the lockfile during build.
@@ -83,6 +91,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Build chemical components database (this binary was installed by uv sync).
 RUN uv run build_data
+
+
+# Ubuntu 24.04 ships a default `ubuntu` account already holding UID 1000, so it
+# has to go before `user` can claim that UID.
+RUN userdel --remove ubuntu 2>/dev/null; \
+    useradd --uid 1000 -s /bin/bash user
+ENV HOME=/tmp
 
 # To work around a known XLA issue causing the compilation time to greatly
 # increase, the following environment variable setting XLA flags must be enabled
